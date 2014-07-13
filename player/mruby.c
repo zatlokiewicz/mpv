@@ -97,7 +97,7 @@ static int load_mruby(struct mpv_handle *client, const char *fname)
 
 err_out:
     if (ctx->state)
-    talloc_free(ctx);
+        talloc_free(ctx);
     return r;
 }
 
