@@ -36,10 +36,14 @@
 #include "libmpv/client.h"
 
 extern const struct mp_scripting mp_scripting_lua;
+extern const struct mp_scripting mp_scripting_mruby;
 
 static const struct mp_scripting *const scripting_backends[] = {
 #if HAVE_LUA
     &mp_scripting_lua,
+#endif
+#if HAVE_MRUBY
+    &mp_scripting_mruby,
 #endif
     NULL
 };

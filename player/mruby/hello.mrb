@@ -1,0 +1,7 @@
+class Duck
+  def noise
+    "quack!"
+  end
+end
+
+M.log(Duck.new.noise + "\n")

@@ -723,6 +723,10 @@ scripting_features = [
         'name' : '--lua',
         'desc' : 'Lua',
         'func': check_lua,
+    }, {
+        'name' : '--mruby',
+        'desc' : 'mruby',
+        'func': check_cc(lib='mruby'),
     }
 ]
 

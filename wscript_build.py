@@ -220,6 +220,7 @@ def build(ctx):
         ( "player/loadfile.c" ),
         ( "player/main.c" ),
         ( "player/misc.c" ),
+        ( "player/mruby.c",                      "mruby" ),
         ( "player/lua.c",                        "lua" ),
         ( "player/osd.c" ),
         ( "player/playloop.c" ),
