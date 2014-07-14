@@ -17,6 +17,8 @@
 
 #include <mruby.h>
 #include <mruby/compile.h>
+#include <mruby/error.h>
+#include <mruby/string.h>
 #include <mruby/variable.h>
 
 #include "common/msg.h"
@@ -59,12 +61,25 @@ static void define_module(mrb_state *mrb)
     mrb_define_module_function(mrb, mod, "log", _log, MRB_ARGS_REQ(1));
 }
 
+static void print_backtrace(mrb_state *mrb)
+{
+    struct script_ctx *ctx = get_ctx(mrb);
+    if (mrb->exc) {
+        mrb_value bt  = mrb_get_backtrace(mrb);
+        mrb_value exc = mrb_funcall(mrb, mrb_obj_value(mrb->exc), "inspect", 0);
+        if (mrb_string_p(exc)) {
+            MP_ERR(ctx, "%s %s\n", RSTRING_PTR(exc), RSTRING_PTR(bt));
+        }
+    }
+}
+
 static void load_script(mrb_state *mrb, const char *fname)
 {
     struct script_ctx *ctx = get_ctx(mrb);
     char *file_path = mp_get_user_path(NULL, ctx->mpctx->global, fname);
     FILE *fp = fopen(file_path, "r");
     mrb_load_file(mrb, fp);
+    print_backtrace(mrb);
     fclose(fp);
     talloc_free(file_path);
 }

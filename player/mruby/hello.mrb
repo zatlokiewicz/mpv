@@ -4,4 +4,20 @@ class Duck
   end
 end
 
-M.log(Duck.new.noise + "\n")
+class Failer
+  def noise
+    raise "oops, something wrong here"
+  end
+end
+
+class Greeter
+  def initialize(klass)
+    @obj = klass.new
+  end
+
+  def greet
+    @obj.noise
+  end
+end
+
+M.log(Greeter.new(Failer).greet + "\n")
