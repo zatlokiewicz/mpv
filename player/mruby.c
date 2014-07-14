@@ -16,6 +16,7 @@
  */
 
 #include <mruby.h>
+#include <mruby/array.h>
 #include <mruby/compile.h>
 #include <mruby/error.h>
 #include <mruby/string.h>
@@ -63,14 +64,26 @@ static void define_module(mrb_state *mrb)
 
 static void print_backtrace(mrb_state *mrb)
 {
-    struct script_ctx *ctx = get_ctx(mrb);
-    if (mrb->exc) {
-        mrb_value bt  = mrb_get_backtrace(mrb);
-        mrb_value exc = mrb_funcall(mrb, mrb_obj_value(mrb->exc), "inspect", 0);
-        if (mrb_string_p(exc)) {
-            MP_ERR(ctx, "%s %s\n", RSTRING_PTR(exc), RSTRING_PTR(bt));
-        }
+    if (!mrb->exc)
+        return;
+
+    mrb_value exc = mrb_obj_value(mrb->exc);
+    mrb_value bt  = mrb_exc_backtrace(mrb, exc);
+
+    char *err = talloc_strdup(NULL, "");
+    mrb_value exc_str = mrb_inspect(mrb, exc);
+    err = talloc_asprintf_append(err, "%s\n", RSTRING_PTR(exc_str));
+
+    mrb_int bt_len = mrb_ary_len(mrb, bt);
+    err = talloc_asprintf_append(err, "backtrace:\n");
+    for (int i = 0; i < bt_len; i++) {
+        mrb_value s = mrb_ary_entry(bt, i);
+        err = talloc_asprintf_append(err, "\t[%d] => %s\n", i, RSTRING_PTR(s));
     }
+
+    struct script_ctx *ctx = get_ctx(mrb);
+    MP_ERR(ctx, "%s", err);
+    talloc_free(err);
 }
 
 static void load_script(mrb_state *mrb, const char *fname)
@@ -78,8 +91,14 @@ static void load_script(mrb_state *mrb, const char *fname)
     struct script_ctx *ctx = get_ctx(mrb);
     char *file_path = mp_get_user_path(NULL, ctx->mpctx->global, fname);
     FILE *fp = fopen(file_path, "r");
-    mrb_load_file(mrb, fp);
+    mrbc_context *mrb_ctx = mrbc_context_new(mrb);
+    mrbc_filename(mrb, mrb_ctx, file_path);
+
+    mrb_load_file_cxt(mrb, fp, mrb_ctx);
     print_backtrace(mrb);
+
+    mrbc_context_free(mrb, mrb_ctx);
+
     fclose(fp);
     talloc_free(file_path);
 }

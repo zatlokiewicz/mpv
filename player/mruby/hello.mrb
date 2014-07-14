@@ -1,23 +1,13 @@
-class Duck
-  def noise
-    "quack!"
-  end
+def foo
+  this_will_fail
 end
 
-class Failer
-  def noise
-    raise "oops, something wrong here"
-  end
+def bar
+  foo
 end
 
-class Greeter
-  def initialize(klass)
-    @obj = klass.new
-  end
-
-  def greet
-    @obj.noise
-  end
+def baz
+  bar
 end
 
-M.log(Greeter.new(Failer).greet + "\n")
+baz
