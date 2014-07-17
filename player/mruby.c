@@ -126,12 +126,12 @@ static int load_mruby(struct mpv_handle *client, const char *fname)
         goto err_out;
 
     load_script(mrb, fname);
-    mrb_close(ctx->state);
     r = 0;
 
 err_out:
     if (ctx->state)
-        talloc_free(ctx);
+        mrb_close(ctx->state);
+    talloc_free(ctx);
     return r;
 }
 
