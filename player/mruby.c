@@ -62,10 +62,12 @@ static mrb_value _property_list(mrb_state *mrb, mrb_value self)
 {
     const struct m_property *props = mp_get_property_list();
     mrb_value mrb_props = mrb_ary_new(mrb);
+    int ai = mrb_gc_arena_save(mrb);
     for (int i = 0; props[i].name; i++) {
         mrb_value name = mrb_str_new_cstr(mrb, props[i].name);
         mrb_ary_push(mrb, mrb_props, name);
     }
+    mrb_gc_arena_restore(mrb, ai);
     return mrb_props;
 }
 
@@ -87,6 +89,8 @@ static void print_backtrace(mrb_state *mrb)
     mrb_value exc = mrb_obj_value(mrb->exc);
     mrb_value bt  = mrb_exc_backtrace(mrb, exc);
 
+    int ai = mrb_gc_arena_save(mrb);
+
     char *err = talloc_strdup(NULL, "");
     mrb_value exc_str = mrb_inspect(mrb, exc);
     err = talloc_asprintf_append(err, "%s\n", RSTRING_PTR(exc_str));
@@ -97,6 +101,8 @@ static void print_backtrace(mrb_state *mrb)
         mrb_value s = mrb_ary_entry(bt, i);
         err = talloc_asprintf_append(err, "\t[%d] => %s\n", i, RSTRING_PTR(s));
     }
+
+    mrb_gc_arena_restore(mrb, ai);
 
     struct script_ctx *ctx = get_ctx(mrb);
     MP_ERR(ctx, "%s", err);
