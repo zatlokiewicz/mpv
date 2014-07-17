@@ -1,5 +1,5 @@
 def foo
-  this_will_fail
+  puts M.log(M.property_list.inspect)
 end
 
 def bar

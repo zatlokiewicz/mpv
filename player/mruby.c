@@ -23,7 +23,9 @@
 #include <mruby/variable.h>
 
 #include "common/msg.h"
+#include "options/m_property.h"
 #include "options/path.h"
+#include "player/command.h"
 #include "player/core.h"
 #include "player/client.h"
 #include "libmpv/client.h"
@@ -56,11 +58,26 @@ static mrb_value _log(mrb_state *mrb, mrb_value self)
     return mrb_nil_value();
 }
 
+static mrb_value _property_list(mrb_state *mrb, mrb_value self)
+{
+    const struct m_property *props = mp_get_property_list();
+    mrb_value mrb_props = mrb_ary_new(mrb);
+    for (int i = 0; props[i].name; i++) {
+        mrb_value name = mrb_str_new_cstr(mrb, props[i].name);
+        mrb_ary_push(mrb, mrb_props, name);
+    }
+    return mrb_props;
+}
+
+#define MRB_FN(a,b) \
+    mrb_define_module_function(mrb, mod, #a, _ ## a, MRB_ARGS_REQ(b));
 static void define_module(mrb_state *mrb)
 {
     struct RClass *mod = mrb_define_module(mrb, "M");
-    mrb_define_module_function(mrb, mod, "log", _log, MRB_ARGS_REQ(1));
+    MRB_FN(log, 1);
+    MRB_FN(property_list, 0);
 }
+#undef MRB_FN
 
 static void print_backtrace(mrb_state *mrb)
 {
@@ -126,6 +143,7 @@ static int load_mruby(struct mpv_handle *client, const char *fname)
         goto err_out;
 
     load_script(mrb, fname);
+
     r = 0;
 
 err_out:
