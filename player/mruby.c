@@ -19,6 +19,7 @@
 #include <mruby/array.h>
 #include <mruby/compile.h>
 #include <mruby/error.h>
+#include <mruby/hash.h>
 #include <mruby/string.h>
 #include <mruby/variable.h>
 
@@ -71,6 +72,72 @@ static mrb_value _property_list(mrb_state *mrb, mrb_value self)
     return mrb_props;
 }
 
+static bool get_node(mrb_state *mrb, void *value)
+{
+    struct script_ctx *ctx = get_ctx(mrb);
+    char *name;
+    int len;
+    mrb_get_args(mrb, "s", &name, &len);
+    int err = mpv_get_property(ctx->client, name, MPV_FORMAT_NODE, value);
+    if (err < 0) {
+        MP_ERR(ctx, "get_property(\"%s\") failed: %s.\n",
+                    name, mpv_error_string(err));
+    }
+    return err >= 0;
+}
+
+static mrb_value mpv_to_mrb_root(mrb_state *mrb, mpv_node node, bool root)
+{
+    switch (node.format) {
+    case MPV_FORMAT_STRING:
+        return mrb_str_new_cstr(mrb, node.u.string);
+    case MPV_FORMAT_FLAG:
+        return mrb_bool_value(node.u.flag >= 0);
+    case MPV_FORMAT_INT64:
+        return mrb_fixnum_value(node.u.int64);
+    case MPV_FORMAT_DOUBLE:
+        return mrb_float_value(mrb, node.u.double_);
+    case MPV_FORMAT_NODE_ARRAY: {
+        mrb_value ary = mrb_ary_new(mrb);
+        int ai = mrb_gc_arena_save(mrb);
+        for (int n = 0; n < node.u.list->num; n++) {
+            mrb_value item = mpv_to_mrb_root(mrb, node.u.list->values[n], false);
+            mrb_ary_push(mrb, ary, item);
+        }
+        if (root)
+            mrb_gc_arena_restore(mrb, ai);
+        return ary;
+    }
+    case MPV_FORMAT_NODE_MAP: {
+        mrb_value hash = mrb_hash_new(mrb);
+        int ai = mrb_gc_arena_save(mrb);
+        for (int n = 0; n < node.u.list->num; n++) {
+            mrb_value key = mrb_str_new_cstr(mrb, node.u.list->keys[n]);
+            mrb_value val = mpv_to_mrb_root(mrb, node.u.list->values[n], false);
+            mrb_hash_set(mrb, hash, key, val);
+        }
+        if (root)
+            mrb_gc_arena_restore(mrb, ai);
+        return hash;
+    }
+    default: {
+        struct script_ctx *ctx = get_ctx(mrb);
+        MP_ERR(ctx, "mpv_node mapping failed (format: %d).\n", node.format);
+        return mrb_nil_value();
+    }
+    }
+}
+
+#define mpv_to_mrb(mrb, node) mpv_to_mrb_root(mrb, node, true)
+
+static mrb_value _get_property(mrb_state *mrb, mrb_value self)
+{
+    mpv_node node;
+    if (get_node(mrb, &node))
+        return mpv_to_mrb(mrb, node);
+    return mrb_nil_value();
+}
+
 #define MRB_FN(a,b) \
     mrb_define_module_function(mrb, mod, #a, _ ## a, MRB_ARGS_REQ(b));
 static void define_module(mrb_state *mrb)
@@ -78,6 +145,7 @@ static void define_module(mrb_state *mrb)
     struct RClass *mod = mrb_define_module(mrb, "M");
     MRB_FN(log, 1);
     MRB_FN(property_list, 0);
+    MRB_FN(get_property, 1);
 }
 #undef MRB_FN
 

@@ -1,5 +1,8 @@
 def foo
-  puts M.log(M.property_list.inspect)
+  M.log("#{M.property_list.inspect}\n")
+  %w(filename chapter-list).each do |p|
+    M.log([p, M.get_property(p)].join(": ") + "\n")
+  end
 end
 
 def bar
