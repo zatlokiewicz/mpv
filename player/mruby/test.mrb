@@ -1,0 +1,53 @@
+def assert(name, &block)
+  @_tests ||= {}
+  @_tests[name] = block
+end
+
+def assert_equal(a, b)
+  raise "Expected #{a} to equal #{b}" unless a == b
+end
+
+def assert_include(a, b)
+  raise "Expected:\n#{a}\nto include\n#{b}\n" unless a.include?(b)
+end
+
+def run
+  puts "\n\nRunning test suite"
+  @_tests.each do |name, block|
+    print name
+    begin
+      block.call
+      puts " # ok"
+    rescue => e
+      puts " ! fail\n"
+      raise e
+    end
+  end
+  puts "\n done! All tests pass!\n\n"
+end
+
+assert ".property_list returns an array" do
+  assert_equal(M.property_list.class, Array)
+end
+
+assert ".property_list contains options" do
+  assert_include(M.property_list, "mute")
+end
+
+assert ".get_property returns proper values" do
+  assert_equal(M.get_property("filename").class,  String)
+  assert_equal(M.get_property("volume").class,    Float)
+  assert_equal(M.get_property("osd-width").class, Fixnum)
+  assert_equal(M.get_property("vf").class,        Array)
+  assert_include([true, false], M.get_property("mute"))
+end
+
+assert ".set_property works on complex types" do
+  assert_equal(M.get_property("vf"), [])
+  M.set_property("vf", [{name: "crop", params: {w: "400", h: "400"}}])
+  assert_equal(M.get_property("vf"), [{"name"=>"crop", "params"=> {"w" => "400", "h" => "400"}}])
+end
+
+puts M.property_list
+M.get_property("mute")
+run
