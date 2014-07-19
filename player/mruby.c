@@ -137,6 +137,95 @@ static mrb_value _get_property(mrb_state *mrb, mrb_value self)
     return mrb_nil_value();
 }
 
+static mpv_node mrb_to_mpv(void *ta_ctx, mrb_state *mrb, mrb_value value)
+{
+    mpv_node res;
+    switch (mrb_type(value)) {
+    case MRB_TT_TRUE:
+        res.format  = MPV_FORMAT_FLAG;
+        res.u.flag  = 1;
+        break;
+    case MRB_TT_FALSE: {
+        // MRB_TT_FALSE is used for both `nil` and `false`
+        if (mrb_nil_p(value)) {
+            res.format = MPV_FORMAT_NONE;
+        } else {
+            res.format = MPV_FORMAT_FLAG;
+            res.u.flag = 0;
+        }
+        break;
+    }
+    case MRB_TT_FIXNUM:
+        res.format  = MPV_FORMAT_INT64;
+        res.u.int64 = mrb_fixnum(value);
+        break;
+    case MRB_TT_FLOAT:
+        res.format    = MPV_FORMAT_DOUBLE;
+        res.u.double_ = mrb_float(value);
+        break;
+    case MRB_TT_STRING:
+        res.format = MPV_FORMAT_STRING;
+        res.u.string = talloc_strdup(ta_ctx, RSTRING_PTR(value));
+        break;
+    case MRB_TT_ARRAY: {
+        mpv_node_list *list = talloc_zero(ta_ctx, mpv_node_list);
+        res.format = MPV_FORMAT_NODE_ARRAY;
+        res.u.list = list;
+        mrb_int len = mrb_ary_len(mrb, value);
+        for (int i = 0; i < len; i++) {
+            MP_TARRAY_GROW(ta_ctx, list->values, list->num);
+            mrb_value item  = mrb_ary_entry(value, i);
+            list->values[i] = mrb_to_mpv(ta_ctx, mrb, item);
+            list->num++;
+        }
+        break;
+    }
+    case MRB_TT_HASH: {
+        mpv_node_list *list = talloc_zero(ta_ctx, mpv_node_list);
+        res.format = MPV_FORMAT_NODE_MAP;
+        res.u.list = list;
+
+        mrb_value keys = mrb_hash_keys(mrb, value);
+        mrb_int len    = mrb_ary_len(mrb, mrb_hash_keys(mrb, value));
+        for (int i = 0; i < len; i++) {
+            MP_TARRAY_GROW(ta_ctx, list->keys,   list->num);
+            MP_TARRAY_GROW(ta_ctx, list->values, list->num);
+            mrb_value key   = mrb_ary_entry(keys, i);
+            mrb_value skey  = mrb_funcall(mrb, key, "to_s", 0);
+            mrb_value item  = mrb_hash_get(mrb, value, key);
+            list->keys[i]   = talloc_strdup(ta_ctx, RSTRING_PTR(skey));
+            list->values[i] = mrb_to_mpv(ta_ctx, mrb, item);
+            list->num++;
+        }
+        break;
+    }
+    default: {
+        struct script_ctx *ctx = get_ctx(mrb);
+        MP_ERR(ctx, "mrb_value mapping failed (class: %s).\n",
+               mrb_obj_classname(mrb, value));
+    }
+    }
+    return res;
+}
+
+static mrb_value _set_property(mrb_state *mrb, mrb_value self)
+{
+    struct script_ctx *ctx = get_ctx(mrb);
+    char *key;
+    mrb_value value;
+    mrb_get_args(mrb, "zo", &key, &value);
+
+    void *ta_ctx = talloc_new(NULL);
+    mpv_node node = mrb_to_mpv(ta_ctx, mrb, value);
+    int res = mpv_set_property(ctx->client, key, MPV_FORMAT_NODE, &node);
+    talloc_free(ta_ctx);
+    if (res < 0) {
+        MP_ERR(ctx, "set_property(\"%s\") failed: %s.\n",
+                    key, mpv_error_string(res));
+    }
+    return mrb_bool_value(res >= 0);
+}
+
 #define MRB_FN(a,b) \
     mrb_define_module_function(mrb, mod, #a, _ ## a, MRB_ARGS_REQ(b));
 static void define_module(mrb_state *mrb)
@@ -145,6 +234,7 @@ static void define_module(mrb_state *mrb)
     MRB_FN(log, 1);
     MRB_FN(property_list, 0);
     MRB_FN(get_property, 1);
+    MRB_FN(set_property, 2);
 }
 #undef MRB_FN
 
