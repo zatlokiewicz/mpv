@@ -76,8 +76,7 @@ static bool get_node(mrb_state *mrb, void *value)
 {
     struct script_ctx *ctx = get_ctx(mrb);
     char *name;
-    int len;
-    mrb_get_args(mrb, "s", &name, &len);
+    mrb_get_args(mrb, "z", &name);
     int err = mpv_get_property(ctx->client, name, MPV_FORMAT_NODE, value);
     if (err < 0) {
         MP_ERR(ctx, "get_property(\"%s\") failed: %s.\n",
