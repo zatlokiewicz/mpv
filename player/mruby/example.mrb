@@ -1,0 +1,1 @@
+M.puts.error "hello from mruby!"

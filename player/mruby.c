@@ -24,6 +24,7 @@
 #include <mruby/variable.h>
 
 #include "common/msg.h"
+#include "common/msg_control.h"
 #include "options/m_property.h"
 #include "options/path.h"
 #include "player/command.h"
@@ -31,6 +32,13 @@
 #include "player/client.h"
 #include "libmpv/client.h"
 #include "talloc.h"
+
+static const char * const mruby_scripts[][2] = {
+    {"defaults",
+#   include "player/mruby/defaults.inc"
+    },
+    {0}
+};
 
 struct script_ctx {
     mrb_state *state;
@@ -49,13 +57,23 @@ static struct script_ctx *get_ctx(mrb_state *mrb)
     return mrb_cptr(mrbctx);
 }
 
+
+static int get_loglevel(char *level)
+{
+    for (int n = 0; n < MSGL_MAX; n++) {
+        if (mp_log_levels[n] && strcasecmp(mp_log_levels[n], level) == 0)
+            return n;
+    }
+    abort();
+}
+
 static mrb_value _log(mrb_state *mrb, mrb_value self)
 {
     struct script_ctx *ctx = get_ctx(mrb);
     char *string;
-    int len;
-    mrb_get_args(mrb, "s", &string, &len);
-    MP_ERR(ctx, "%s", string);
+    char *level;
+    mrb_get_args(mrb, "zz", &level, &string);
+    mp_msg(ctx->log, get_loglevel(level), "%s", string);
     return mrb_nil_value();
 }
 
@@ -238,10 +256,10 @@ static void define_module(mrb_state *mrb)
 }
 #undef MRB_FN
 
-static void print_backtrace(mrb_state *mrb)
+static bool print_backtrace(mrb_state *mrb)
 {
     if (!mrb->exc)
-        return;
+        return false;
 
     mrb_value exc = mrb_obj_value(mrb->exc);
     mrb_value bt  = mrb_exc_backtrace(mrb, exc);
@@ -264,6 +282,22 @@ static void print_backtrace(mrb_state *mrb)
     struct script_ctx *ctx = get_ctx(mrb);
     MP_ERR(ctx, "%s", err);
     talloc_free(err);
+    return true;
+}
+
+static bool load_environment(mrb_state *mrb)
+{
+    for (int n = 0; mruby_scripts[n][0]; n++) {
+        mrbc_context *mrb_ctx = mrbc_context_new(mrb);
+        mrbc_filename(mrb, mrb_ctx, mruby_scripts[n][0]);
+        const char *script = mruby_scripts[n][1];
+        mrb_load_string_cxt(mrb, script, mrb_ctx);
+        bool err = print_backtrace(mrb);
+        mrbc_context_free(mrb, mrb_ctx);
+        if (err)
+            return false;
+    }
+    return true;
 }
 
 static void load_script(mrb_state *mrb, const char *fname)
@@ -303,6 +337,9 @@ static int load_mruby(struct mpv_handle *client, const char *fname)
     define_module(mrb);
 
     if (!mrb)
+        goto err_out;
+
+    if (!load_environment(mrb))
         goto err_out;
 
     load_script(mrb, fname);
