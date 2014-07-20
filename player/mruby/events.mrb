@@ -1,0 +1,24 @@
+module M
+  class << self
+    attr_accessor :keep_running
+  end
+
+  def self.event_loop=(callable)
+    @_event_loop = callable
+  end
+
+  def self.run
+    @_event_loop ||= Proc.new do
+      M.keep_running = true
+      while (M.keep_running) do
+        e = M.wait_event(1e20)
+        M.puts.error "loop: #{e}"
+        if e == "shutdown"
+          M.keep_running = false
+        end
+      end
+    end
+
+    @_event_loop.call
+  end
+end

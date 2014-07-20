@@ -73,8 +73,12 @@ def build(ctx):
         target = "player/lua/osc.inc")
 
     ctx.file2string(
-        source = "player/mruby/defaults.mrb",
-        target = "player/mruby/defaults.inc")
+        source = "player/mruby/logging.mrb",
+        target = "player/mruby/logging.inc")
+
+    ctx.file2string(
+        source = "player/mruby/events.mrb",
+        target = "player/mruby/events.inc")
 
     ctx.matroska_header(
         source = "demux/ebml.c demux/demux_mkv.c",

@@ -34,8 +34,11 @@
 #include "talloc.h"
 
 static const char * const mruby_scripts[][2] = {
-    {"defaults",
-#   include "player/mruby/defaults.inc"
+    {"logging",
+#   include "player/mruby/logging.inc"
+    },
+    {"events",
+#   include "player/mruby/events.inc"
     },
     {0}
 };
@@ -244,6 +247,15 @@ static mrb_value _set_property(mrb_state *mrb, mrb_value self)
     return mrb_bool_value(res >= 0);
 }
 
+static mrb_value _wait_event(mrb_state *mrb, mrb_value self)
+{
+    struct script_ctx *ctx = get_ctx(mrb);
+    mrb_float timeout;
+    mrb_get_args(mrb, "f", &timeout);
+    mpv_event *event = mpv_wait_event(ctx->client, timeout);
+    return mrb_str_new_cstr(mrb, mpv_event_name(event->event_id));
+}
+
 #define MRB_FN(a,b) \
     mrb_define_module_function(mrb, mod, #a, _ ## a, MRB_ARGS_REQ(b));
 static void define_module(mrb_state *mrb)
@@ -253,13 +265,14 @@ static void define_module(mrb_state *mrb)
     MRB_FN(property_list, 0);
     MRB_FN(get_property, 1);
     MRB_FN(set_property, 2);
+    MRB_FN(wait_event,   1);
 }
 #undef MRB_FN
 
 static bool print_backtrace(mrb_state *mrb)
 {
     if (!mrb->exc)
-        return false;
+        return true;
 
     mrb_value exc = mrb_obj_value(mrb->exc);
     mrb_value bt  = mrb_exc_backtrace(mrb, exc);
@@ -282,39 +295,42 @@ static bool print_backtrace(mrb_state *mrb)
     struct script_ctx *ctx = get_ctx(mrb);
     MP_ERR(ctx, "%s", err);
     talloc_free(err);
-    return true;
+    return false;
+}
+
+typedef mrb_value (*runner)(mrb_state *, const void*, mrbc_context *);
+
+static bool run_script(mrb_state *mrb, runner runner,
+                       const void *runee, const char *name)
+{
+    mrbc_context *mrb_ctx = mrbc_context_new(mrb);
+    mrbc_filename(mrb, mrb_ctx, name);
+    runner(mrb, runee, mrb_ctx);
+    bool err = print_backtrace(mrb);
+    mrbc_context_free(mrb, mrb_ctx);
+    return err;
 }
 
 static bool load_environment(mrb_state *mrb)
 {
     for (int n = 0; mruby_scripts[n][0]; n++) {
-        mrbc_context *mrb_ctx = mrbc_context_new(mrb);
-        mrbc_filename(mrb, mrb_ctx, mruby_scripts[n][0]);
         const char *script = mruby_scripts[n][1];
-        mrb_load_string_cxt(mrb, script, mrb_ctx);
-        bool err = print_backtrace(mrb);
-        mrbc_context_free(mrb, mrb_ctx);
-        if (err)
+        const char *fname  = mruby_scripts[n][0];
+        if (!run_script(mrb, (runner) mrb_load_string_cxt, script, fname))
             return false;
     }
     return true;
 }
 
-static void load_script(mrb_state *mrb, const char *fname)
+static bool load_script(mrb_state *mrb, const char *fname)
 {
     struct script_ctx *ctx = get_ctx(mrb);
     char *file_path = mp_get_user_path(NULL, ctx->mpctx->global, fname);
     FILE *fp = fopen(file_path, "r");
-    mrbc_context *mrb_ctx = mrbc_context_new(mrb);
-    mrbc_filename(mrb, mrb_ctx, file_path);
-
-    mrb_load_file_cxt(mrb, fp, mrb_ctx);
-    print_backtrace(mrb);
-
-    mrbc_context_free(mrb, mrb_ctx);
-
+    bool result = run_script(mrb, (runner) mrb_load_file_cxt, fp, fname);
     fclose(fp);
     talloc_free(file_path);
+    return result;
 }
 
 static int load_mruby(struct mpv_handle *client, const char *fname)
@@ -342,7 +358,11 @@ static int load_mruby(struct mpv_handle *client, const char *fname)
     if (!load_environment(mrb))
         goto err_out;
 
-    load_script(mrb, fname);
+    if (!load_script(mrb, fname))
+        goto err_out;
+
+    if (!run_script(mrb, (runner) mrb_load_string_cxt, "M.run", "event_loop"))
+        goto err_out;
 
     r = 0;
 
