@@ -247,13 +247,91 @@ static mrb_value _set_property(mrb_state *mrb, mrb_value self)
     return mrb_bool_value(res >= 0);
 }
 
+#define mrb_hash_set_str(h, k, v) \
+    mrb_hash_set(mrb, h, mrb_str_new_cstr(mrb, k), mrb_str_new_cstr(mrb, v))
+
 static mrb_value _wait_event(mrb_state *mrb, mrb_value self)
 {
     struct script_ctx *ctx = get_ctx(mrb);
     mrb_float timeout;
     mrb_get_args(mrb, "f", &timeout);
     mpv_event *event = mpv_wait_event(ctx->client, timeout);
-    return mrb_str_new_cstr(mrb, mpv_event_name(event->event_id));
+
+    struct RClass *M = mrb_module_get(mrb, "M");
+    struct RClass *c = mrb_class_get_under(mrb, M, "Event");
+
+    mrb_value data = mrb_hash_new(mrb);
+
+    switch (event->event_id) {
+    case MPV_EVENT_LOG_MESSAGE: {
+        mpv_event_log_message *msg = event->data;
+        mrb_hash_set_str(data, "prefix", msg->prefix);
+        mrb_hash_set_str(data, "level",  msg->level);
+        mrb_hash_set_str(data, "text",   msg->text);
+        break;
+    }
+    case MPV_EVENT_SCRIPT_INPUT_DISPATCH: {
+        mpv_event_script_input_dispatch *msg = event->data;
+        mrb_value arg0 = mrb_fixnum_value(msg->arg0);
+        mrb_hash_set(mrb, data, mrb_str_new_cstr(mrb, "arg0"), arg0);
+        mrb_hash_set_str(data, "type", msg->type);
+        break;
+    }
+    case MPV_EVENT_CLIENT_MESSAGE: {
+        mpv_event_client_message *msg = event->data;
+        mrb_value args = mrb_ary_new(mrb);
+        for (int n = 0; n < msg->num_args; n++)
+            mrb_ary_push(mrb, args, mrb_str_new_cstr(mrb, msg->args[n]));
+        mrb_hash_set(mrb, data, mrb_str_new_cstr(mrb, "args"), args);
+        break;
+    }
+    case MPV_EVENT_PROPERTY_CHANGE: {
+        mpv_event_property *prop = event->data;
+        mrb_hash_set_str(data, "name", prop->name);
+        mpv_node node;
+
+        switch (prop->format) {
+        case MPV_FORMAT_NODE:
+            node = *(mpv_node*)prop->data;
+            break;
+        case MPV_FORMAT_DOUBLE:
+            node = (mpv_node) {
+                .format    = MPV_FORMAT_DOUBLE,
+                .u.double_ = *(double*)prop->data
+            };
+            break;
+        case MPV_FORMAT_FLAG:
+            node = (mpv_node) {
+                .format = MPV_FORMAT_FLAG,
+                .u.flag = *(int*)prop->data
+            };
+            break;
+        case MPV_FORMAT_STRING:
+            node = (mpv_node) {
+                .format   = MPV_FORMAT_STRING,
+                .u.string = *(char**)prop->data
+            };
+            break;
+        default:
+            node = (mpv_node) {
+                .format = MPV_FORMAT_NONE
+            };
+        }
+
+        mrb_value value = mpv_to_mrb(mrb, node);
+        mrb_hash_set(mrb, data, mrb_str_new_cstr(mrb, "value"), value);
+    }
+    default: ;
+    }
+
+    mrb_value init_args[4] = {
+        mrb_fixnum_value(event->reply_userdata),
+        mrb_str_new_cstr(mrb, mpv_event_name(event->event_id)),
+        mrb_str_new_cstr(mrb, mpv_error_string(event->error)),
+        data
+    };
+
+    return mrb_obj_new(mrb, c, MP_ARRAY_SIZE(init_args), init_args);
 }
 
 #define MRB_FN(a,b) \

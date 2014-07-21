@@ -1,4 +1,16 @@
 module M
+  class Event < Struct.new(:id, :type, :error, :data)
+    %w(shutdown).each do |n|
+      define_method("#{n}?") do
+        type == n
+      end
+    end
+
+    def success?
+      error == "success"
+    end
+  end
+
   class << self
     attr_accessor :keep_running
   end
@@ -12,8 +24,8 @@ module M
       M.keep_running = true
       while (M.keep_running) do
         e = M.wait_event(1e20)
-        M.puts.error "loop: #{e}"
-        if e == "shutdown"
+        M.puts.error "loop: #{e.inspect}"
+        if e.shutdown?
           M.keep_running = false
         end
       end
