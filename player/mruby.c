@@ -51,6 +51,7 @@ struct script_ctx {
     struct mp_log *log;
     struct mpv_handle *client;
     struct MPContext *mpctx;
+    uint64_t rd;
 };
 
 static struct script_ctx *get_ctx(mrb_state *mrb)
@@ -60,6 +61,11 @@ static struct script_ctx *get_ctx(mrb_state *mrb)
     return mrb_cptr(mrbctx);
 }
 
+static uint64_t get_reply_data(mrb_state *mrb)
+{
+    struct script_ctx *ctx = get_ctx(mrb);
+    return ctx->rd++;
+}
 
 static int get_loglevel(char *level)
 {
@@ -112,7 +118,7 @@ static mrb_value mpv_to_mrb_root(mrb_state *mrb, mpv_node node, bool root)
     case MPV_FORMAT_STRING:
         return mrb_str_new_cstr(mrb, node.u.string);
     case MPV_FORMAT_FLAG:
-        return mrb_bool_value(node.u.flag >= 0);
+        return mrb_bool_value(node.u.flag > 0);
     case MPV_FORMAT_INT64:
         return mrb_fixnum_value(node.u.int64);
     case MPV_FORMAT_DOUBLE:
@@ -290,32 +296,11 @@ static mrb_value _wait_event(mrb_state *mrb, mrb_value self)
         mrb_hash_set_str(data, "name", prop->name);
         mpv_node node;
 
-        switch (prop->format) {
-        case MPV_FORMAT_NODE:
+        if (prop->format == MPV_FORMAT_NODE) {
             node = *(mpv_node*)prop->data;
-            break;
-        case MPV_FORMAT_DOUBLE:
-            node = (mpv_node) {
-                .format    = MPV_FORMAT_DOUBLE,
-                .u.double_ = *(double*)prop->data
-            };
-            break;
-        case MPV_FORMAT_FLAG:
-            node = (mpv_node) {
-                .format = MPV_FORMAT_FLAG,
-                .u.flag = *(int*)prop->data
-            };
-            break;
-        case MPV_FORMAT_STRING:
-            node = (mpv_node) {
-                .format   = MPV_FORMAT_STRING,
-                .u.string = *(char**)prop->data
-            };
-            break;
-        default:
-            node = (mpv_node) {
-                .format = MPV_FORMAT_NONE
-            };
+            MP_ERR(ctx, "flag: %d, double: %f\n", node.u.flag, node.u.double_);
+        } else {
+            node = (mpv_node) { .format = MPV_FORMAT_NONE };
         }
 
         mrb_value value = mpv_to_mrb(mrb, node);
@@ -334,6 +319,27 @@ static mrb_value _wait_event(mrb_state *mrb, mrb_value self)
     return mrb_obj_new(mrb, c, MP_ARRAY_SIZE(init_args), init_args);
 }
 
+static mrb_value _observe_property(mrb_state *mrb, mrb_value self)
+{
+    struct script_ctx *ctx = get_ctx(mrb);
+    uint64_t id = get_reply_data(mrb);
+    char *name;
+    mrb_get_args(mrb, "z", &name);
+    if ( mpv_observe_property(ctx->client, id, name, MPV_FORMAT_NODE) >= 0)
+        return mrb_fixnum_value(id);
+    else
+        return mrb_nil_value();
+}
+
+static mrb_value _unobserve_property(mrb_state *mrb, mrb_value self)
+{
+    struct script_ctx *ctx = get_ctx(mrb);
+    mrb_int id;
+    mrb_get_args(mrb, "i", &id);
+    int err = mpv_unobserve_property(ctx->client, id);
+    return mrb_bool_value(err >= 0);
+}
+
 #define MRB_FN(a,b) \
     mrb_define_module_function(mrb, mod, #a, _ ## a, MRB_ARGS_REQ(b));
 static void define_module(mrb_state *mrb)
@@ -343,7 +349,9 @@ static void define_module(mrb_state *mrb)
     MRB_FN(property_list, 0);
     MRB_FN(get_property, 1);
     MRB_FN(set_property, 2);
-    MRB_FN(wait_event,   1);
+    MRB_FN(wait_event, 1);
+    MRB_FN(observe_property, 1);
+    MRB_FN(unobserve_property, 1);
 }
 #undef MRB_FN
 
@@ -423,6 +431,7 @@ static int load_mruby(struct mpv_handle *client, const char *fname)
         .log      = mp_client_get_log(client),
         .client   = client,
         .mpctx    = mpctx,
+        .rd       = 1337
     };
 
     mrb_state *mrb = ctx->state = mrb_open();
@@ -450,7 +459,6 @@ err_out:
     talloc_free(ctx);
     return r;
 }
-
 
 const struct mp_scripting mp_scripting_mruby = {
     .file_ext = "mrb",

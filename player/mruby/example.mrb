@@ -1,1 +1,5 @@
 M.puts.error "hello from mruby!"
+M.observe_property("volume")
+observer_id = M.observe_property("mute")
+M.puts.warn "observer for mute #{observer_id}"
+M.puts.error M.unobserve_property(observer_id).inspect
