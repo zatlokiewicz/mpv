@@ -53,7 +53,7 @@ assert ".get_property returns proper values" do
   assert_class(M.get_property("volume"),    Float)
   assert_class(M.get_property("osd-width"), Fixnum)
   assert_class(M.get_property("vf"),        Array)
-  assert_include([true, false], M.get_property("mute").val!)
+  assert_include([true, false], M.get_property("mute").unbox!)
 end
 
 assert ".set_property works on complex types" do

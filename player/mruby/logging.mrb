@@ -25,24 +25,24 @@ module M
   class Reply < Struct.new(:val, :status)
 
     %w(b f i s).map{|type| "to_#{type}"}.map(&:intern).each do |method|
-      define_method(method) { val!.send(method) }
+      define_method(method) { unbox!.send(method) }
     end
 
-    def val!
+    def unbox(default=nil, &block)
+      unbox!(&block)
+    rescue ReplyError
+      default
+    end
+
+    def unbox!(&block)
       if success?
-        val
+        block_given? ? yield(val) : val
       else
         raise ReplyError, status
       end
     end
 
-    def unbox
-      if success? and block_given?
-        yield(val)
-      else
-        nil
-      end
-    end
+    private :val
 
     private
     def success?
