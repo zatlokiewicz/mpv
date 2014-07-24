@@ -73,6 +73,10 @@ def build(ctx):
         target = "player/lua/osc.inc")
 
     ctx.file2string(
+        source = "player/mruby/reply.mrb",
+        target = "player/mruby/reply.inc")
+
+    ctx.file2string(
         source = "player/mruby/logging.mrb",
         target = "player/mruby/logging.inc")
 

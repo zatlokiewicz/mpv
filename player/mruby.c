@@ -34,10 +34,13 @@
 #include "talloc.h"
 
 static const char * const mruby_scripts[][2] = {
-    {"logging",
+    {"mpv/reply.mrb",
+#   include "player/mruby/reply.inc"
+    },
+    {"mpv/logging.mrb",
 #   include "player/mruby/logging.inc"
     },
-    {"events",
+    {"mpv/events.mrb",
 #   include "player/mruby/events.inc"
     },
     {0}
