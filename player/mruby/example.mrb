@@ -1,4 +1,13 @@
 M.puts.error "hello from mruby!"
+
+boxes = %w(mute mut).map {|p| M.get_property(p)}
+boxes.each do |box|
+  box.unbox do |value|
+    # only executed if no errors
+    M.puts.warn "got #{value}"
+  end
+end
+
 M.observe_property("volume")
 observer_id = M.observe_property("mute")
 M.puts.warn "observer for mute #{observer_id}"

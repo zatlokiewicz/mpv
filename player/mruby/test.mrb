@@ -3,8 +3,22 @@ def assert(name, &block)
   @_tests[name] = block
 end
 
+def with_unbox(a, &block)
+  case [a.class]
+  when [M::Reply] then
+    a.unbox(&block)
+  else
+    yield(a)
+  end
+end
+
 def assert_equal(a, b)
-  raise "Expected #{a} to equal #{b}" unless a == b
+  raise "Expected #{a} to equal #{b}" unless with_unbox(a) {|v| v == b}
+end
+
+def assert_class(a, klass)
+  raise "Expected #{a} to be of class #{klass}" \
+    unless with_unbox(a) {|v| v.class == klass}
 end
 
 def assert_include(a, b)
@@ -27,7 +41,7 @@ def run
 end
 
 assert ".property_list returns an array" do
-  assert_equal(M.property_list.class, Array)
+  assert_equal(M.property_list.val.class, Array)
 end
 
 assert ".property_list contains options" do
@@ -35,11 +49,11 @@ assert ".property_list contains options" do
 end
 
 assert ".get_property returns proper values" do
-  assert_equal(M.get_property("filename").class,  String)
-  assert_equal(M.get_property("volume").class,    Float)
-  assert_equal(M.get_property("osd-width").class, Fixnum)
-  assert_equal(M.get_property("vf").class,        Array)
-  assert_include([true, false], M.get_property("mute"))
+  assert_class(M.get_property("filename"),  String)
+  assert_class(M.get_property("volume"),    Float)
+  assert_class(M.get_property("osd-width"), Fixnum)
+  assert_class(M.get_property("vf"),        Array)
+  assert_include([true, false], M.get_property("mute").val!)
 end
 
 assert ".set_property works on complex types" do

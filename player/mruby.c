@@ -76,6 +76,19 @@ static int get_loglevel(char *level)
     abort();
 }
 
+static mrb_value api_return(mrb_state *mrb, int err, mrb_value value)
+{
+    const char* status = mpv_error_string(err);
+    struct RClass *M = mrb_module_get(mrb, "M");
+    struct RClass *c = mrb_class_get_under(mrb, M, "Reply");
+    mrb_value init_args[2] = { value, mrb_str_new_cstr(mrb, status) };
+    return mrb_obj_new(mrb, c, MP_ARRAY_SIZE(init_args), init_args);
+}
+
+#define api_return_bool(mrb, err) api_return(mrb, err, mrb_bool_value(err >= 0))
+#define api_return_val(mrb, err, val) \
+    api_return(mrb, err, err >= 0 ? val : mrb_nil_value())
+
 static mrb_value _log(mrb_state *mrb, mrb_value self)
 {
     struct script_ctx *ctx = get_ctx(mrb);
@@ -96,20 +109,7 @@ static mrb_value _property_list(mrb_state *mrb, mrb_value self)
         mrb_ary_push(mrb, mrb_props, name);
     }
     mrb_gc_arena_restore(mrb, ai);
-    return mrb_props;
-}
-
-static bool get_node(mrb_state *mrb, void *value)
-{
-    struct script_ctx *ctx = get_ctx(mrb);
-    char *name;
-    mrb_get_args(mrb, "z", &name);
-    int err = mpv_get_property(ctx->client, name, MPV_FORMAT_NODE, value);
-    if (err < 0) {
-        MP_ERR(ctx, "get_property(\"%s\") failed: %s.\n",
-                    name, mpv_error_string(err));
-    }
-    return err >= 0;
+    return api_return_val(mrb, 1, mrb_props);
 }
 
 static mrb_value mpv_to_mrb_root(mrb_state *mrb, mpv_node node, bool root)
@@ -158,10 +158,12 @@ static mrb_value mpv_to_mrb_root(mrb_state *mrb, mpv_node node, bool root)
 
 static mrb_value _get_property(mrb_state *mrb, mrb_value self)
 {
+    struct script_ctx *ctx = get_ctx(mrb);
+    char *name;
+    mrb_get_args(mrb, "z", &name);
     mpv_node node;
-    if (get_node(mrb, &node))
-        return mpv_to_mrb(mrb, node);
-    return mrb_nil_value();
+    int err = mpv_get_property(ctx->client, name, MPV_FORMAT_NODE, &node);
+    return api_return_val(mrb, err, mpv_to_mrb(mrb, node));
 }
 
 static mpv_node mrb_to_mpv(void *ta_ctx, mrb_state *mrb, mrb_value value)
@@ -246,11 +248,7 @@ static mrb_value _set_property(mrb_state *mrb, mrb_value self)
     mpv_node node = mrb_to_mpv(ta_ctx, mrb, value);
     int res = mpv_set_property(ctx->client, key, MPV_FORMAT_NODE, &node);
     talloc_free(ta_ctx);
-    if (res < 0) {
-        MP_ERR(ctx, "set_property(\"%s\") failed: %s.\n",
-                    key, mpv_error_string(res));
-    }
-    return mrb_bool_value(res >= 0);
+    return api_return_bool(mrb, res);
 }
 
 #define mrb_hash_set_str(h, k, v) \
@@ -325,10 +323,8 @@ static mrb_value _observe_property(mrb_state *mrb, mrb_value self)
     uint64_t id = get_reply_data(mrb);
     char *name;
     mrb_get_args(mrb, "z", &name);
-    if ( mpv_observe_property(ctx->client, id, name, MPV_FORMAT_NODE) >= 0)
-        return mrb_fixnum_value(id);
-    else
-        return mrb_nil_value();
+    int err = mpv_observe_property(ctx->client, id, name, MPV_FORMAT_NODE);
+    return api_return_val(mrb, err, mrb_fixnum_value(id));
 }
 
 static mrb_value _unobserve_property(mrb_state *mrb, mrb_value self)
@@ -337,7 +333,7 @@ static mrb_value _unobserve_property(mrb_state *mrb, mrb_value self)
     mrb_int id;
     mrb_get_args(mrb, "i", &id);
     int err = mpv_unobserve_property(ctx->client, id);
-    return mrb_bool_value(err >= 0);
+    return api_return_bool(mrb, err);
 }
 
 #define MRB_FN(a,b) \

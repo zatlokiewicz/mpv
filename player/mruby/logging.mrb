@@ -6,7 +6,7 @@ module M
 
     %w(fatal error warn info v debug).each do |level|
       define_method(level) do |message|
-        M.log(level, [message, @suffix].join)
+        M.log(level, [message.to_s, @suffix].join)
       end
     end
   end
@@ -17,5 +17,44 @@ module M
 
   def self.puts
     @_puts ||= Logger.new("\n")
+  end
+end
+
+module M
+  class ReplyError < StandardError; end
+  class Reply < Struct.new(:val, :status)
+
+    %w(b f i s).map{|type| "to_#{type}"}.map(&:intern).each do |method|
+      define_method(method) { val!.send(method) }
+    end
+
+    def val!
+      if success?
+        val
+      else
+        raise ReplyError, status
+      end
+    end
+
+    def unbox
+      if success? and block_given?
+        yield(val)
+      else
+        nil
+      end
+    end
+
+    private
+    def success?
+      status == "success"
+    end
+
+    def method_missing(method, *args, &block)
+      if success? and val.respond_to?(method)
+        val.send(method, *args, &block)
+      else
+        super
+      end
+    end
   end
 end
