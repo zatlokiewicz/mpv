@@ -299,7 +299,6 @@ static mrb_value _wait_event(mrb_state *mrb, mrb_value self)
 
         if (prop->format == MPV_FORMAT_NODE) {
             node = *(mpv_node*)prop->data;
-            MP_ERR(ctx, "flag: %d, double: %f\n", node.u.flag, node.u.double_);
         } else {
             node = (mpv_node) { .format = MPV_FORMAT_NONE };
         }
