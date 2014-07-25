@@ -11,8 +11,44 @@ module M
     end
   end
 
-  class << self
-    attr_accessor :keep_running
+  class FiberLoop
+    def initialize
+      @_fiber = Fiber.new do
+        loop do; iter; end
+      end
+    end
+
+    def suspend(*args)
+      Fiber.yield(*args)
+    end
+
+    def call
+      @_fiber.resume
+    end
+  end
+
+  class EventSource < FiberLoop
+    private
+    def dequeue_event
+      e = M.wait_event(1e20)
+      M.puts.warn "dequeue_event: #{e.inspect}"
+      suspend(e)
+    end
+
+    alias_method :iter, :dequeue_event
+  end
+
+  class EventLoop < FiberLoop
+    def initialize(source)
+      @_esource = source
+      super()
+    end
+
+    private
+    def iter
+      event = @_esource.call
+      suspend(:shutdown) if event.shutdown?
+    end
   end
 
   def self.event_loop=(callable)
@@ -20,17 +56,7 @@ module M
   end
 
   def self.run
-    @_event_loop ||= Proc.new do
-      M.keep_running = true
-      while (M.keep_running) do
-        e = M.wait_event(1e20)
-        M.puts.error "loop: #{e.inspect}"
-        if e.shutdown?
-          M.keep_running = false
-        end
-      end
-    end
-
+    @_event_loop ||= EventLoop.new(EventSource.new)
     @_event_loop.call
   end
 end
