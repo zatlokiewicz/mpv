@@ -11,37 +11,20 @@ module M
     end
   end
 
-  class FiberLoop
+  class EventLoop
+    attr_reader :timers
+
     def initialize
-      @_fiber = Fiber.new do
-        loop do; iter; end
+      @timers = Timers.new
+    end
+
+    def run
+      loop do
+        timers.fire
+        wait_time = timers.wait_time || 1e20
+        event = M.wait_event(wait_time)
+        break if event.shutdown?
       end
-    end
-
-    def suspend(*args)
-      Fiber.yield(*args)
-    end
-
-    def call
-      @_fiber.resume
-    end
-  end
-
-  class EventSource < FiberLoop
-    private
-    def dequeue_event
-      e = M.wait_event(1e20)
-      M.puts.warn "dequeue_event: #{e.inspect}"
-      suspend(e)
-    end
-
-    alias_method :iter, :dequeue_event
-  end
-
-  class EventLoop < FiberLoop
-    def initialize(source)
-      @_esource = source
-      super()
     end
 
     private
@@ -51,12 +34,95 @@ module M
     end
   end
 
-  def self.event_loop=(callable)
-    @_event_loop = callable
+  class Timers
+    def initialize
+      @timers = []
+    end
+
+    def fire
+      @timers.each(&:fire)
+    end
+
+    def add(&block)
+      t = Timer.new(self, &block)
+      @timers.push(t)
+      t
+    end
+
+    def delete(t)
+      @timers.delete(t)
+    end
+
+    def wait_time
+      @timers.select(&:active?).map(&:wait_time).select{|t| t > 0}.min
+    end
+  end
+
+  class Timer
+    attr_accessor :executions
+
+    def initialize(timers, &block)
+      @timers = timers
+      @block  = block
+      @active = false
+      self.executions = 0
+    end
+
+    def fire
+      return unless active?
+      return if wait_time > 0
+
+      self.executions += 1
+      @block.call(self)
+      reschedule
+    end
+
+    def cancel
+      @active = false
+      @timers.delete(self)
+    end
+
+    def every(secs)
+      @interval = secs
+      once(secs)
+    end
+
+    def once(secs)
+      @expire_time = now + secs
+      @active = true
+    end
+
+    def wait_time
+      @expire_time - now
+    end
+
+    def active?
+      @active
+    end
+
+    private
+    def interval?
+      !! @interval
+    end
+
+    def reschedule
+      every(@interval) if interval?
+    end
+
+    def now
+      M.get_time
+    end
+  end
+
+  def self.event_loop
+    @event_loop ||= EventLoop.new
+  end
+
+  def self.timers
+    event_loop.timers
   end
 
   def self.run
-    @_event_loop ||= EventLoop.new(EventSource.new)
-    @_event_loop.call
+    event_loop.run
   end
 end

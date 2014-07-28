@@ -338,6 +338,13 @@ static mrb_value _unobserve_property(mrb_state *mrb, mrb_value self)
     return api_return_bool(mrb, err);
 }
 
+static mrb_value _get_time(mrb_state *mrb, mrb_value self)
+{
+    struct script_ctx *ctx = get_ctx(mrb);
+    const double secs = mpv_get_time_us(ctx->client) / (double)(1e6);
+    return mrb_float_value(mrb, secs);
+}
+
 #define MRB_FN(a,b) \
     mrb_define_module_function(mrb, mod, #a, _ ## a, MRB_ARGS_REQ(b));
 static void define_module(mrb_state *mrb)
@@ -350,6 +357,7 @@ static void define_module(mrb_state *mrb)
     MRB_FN(wait_event, 1);
     MRB_FN(observe_property, 1);
     MRB_FN(unobserve_property, 1);
+    MRB_FN(get_time, 0);
 }
 #undef MRB_FN
 

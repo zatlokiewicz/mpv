@@ -12,3 +12,8 @@ M.observe_property("volume")
 observer_id = M.observe_property("mute")
 M.puts.warn "observer for mute #{observer_id}"
 M.puts.error M.unobserve_property(observer_id).inspect
+
+M.timers.add do |t|
+  t.cancel and break if t.executions > 2
+  M.puts.error "timer called!"
+end.every(3)
