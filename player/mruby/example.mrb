@@ -8,6 +8,8 @@ boxes.each do |box|
   end
 end
 
+M.puts.warn M.find_config_file("config")
+
 # M.events.observe 'tick' do
 #   M.puts.error "tick"
 #   M.events.unobserve "tick"

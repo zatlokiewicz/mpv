@@ -95,6 +95,17 @@ static mrb_value _log(mrb_state *mrb, mrb_value self)
     return mrb_nil_value();
 }
 
+static mrb_value _find_config_file(mrb_state *mrb, mrb_value self)
+{
+    struct script_ctx *ctx = get_ctx(mrb);
+    char *s;
+    mrb_get_args(mrb, "z", &s);
+    char *path = mp_find_config_file(NULL, ctx->mpctx->global, s);
+    mrb_value r = path ? mrb_str_new_cstr(mrb, path) : mrb_nil_value();
+    talloc_free(path);
+    return api_return_val(mrb, 0, r);
+}
+
 static mrb_value mpv_to_mrb_root(mrb_state *mrb, mpv_node node, bool root)
 {
     switch (node.format) {
@@ -351,6 +362,7 @@ static void define_module(mrb_state *mrb)
 {
     struct RClass *mod = mrb_define_module(mrb, "M");
     MRB_FN(log, 1);
+    MRB_FN(find_config_file, 1);
     MRB_FN(get_property, 1);
     MRB_FN(set_property, 2);
     MRB_FN(wait_event, 1);
