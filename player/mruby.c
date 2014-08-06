@@ -54,7 +54,6 @@ struct script_ctx {
     struct mp_log *log;
     struct mpv_handle *client;
     struct MPContext *mpctx;
-    uint64_t rd;
 };
 
 static struct script_ctx *get_ctx(mrb_state *mrb)
@@ -62,12 +61,6 @@ static struct script_ctx *get_ctx(mrb_state *mrb)
     mrb_sym sym = mrb_intern_cstr(mrb, "mpctx");
     mrb_value mrbctx = mrb_vm_const_get(mrb, sym);;
     return mrb_cptr(mrbctx);
-}
-
-static uint64_t get_reply_data(mrb_state *mrb)
-{
-    struct script_ctx *ctx = get_ctx(mrb);
-    return ctx->rd++;
 }
 
 static int get_loglevel(char *level)
@@ -306,22 +299,42 @@ static mrb_value _wait_event(mrb_state *mrb, mrb_value self)
     return mrb_obj_new(mrb, c, MP_ARRAY_SIZE(init_args), init_args);
 }
 
-static mrb_value _observe_property(mrb_state *mrb, mrb_value self)
+static mrb_value _observe_property_raw(mrb_state *mrb, mrb_value self)
 {
     struct script_ctx *ctx = get_ctx(mrb);
-    uint64_t id = get_reply_data(mrb);
+    mrb_int id;
     char *name;
-    mrb_get_args(mrb, "z", &name);
+    mrb_get_args(mrb, "iz", &id, &name);
     int err = mpv_observe_property(ctx->client, id, name, MPV_FORMAT_NODE);
     return api_return_val(mrb, err, mrb_fixnum_value(id));
 }
 
-static mrb_value _unobserve_property(mrb_state *mrb, mrb_value self)
+static mrb_value _unobserve_property_raw(mrb_state *mrb, mrb_value self)
 {
     struct script_ctx *ctx = get_ctx(mrb);
     mrb_int id;
     mrb_get_args(mrb, "i", &id);
     int err = mpv_unobserve_property(ctx->client, id);
+    return api_return_bool(mrb, err);
+}
+
+static mrb_value _request_event(mrb_state *mrb, mrb_value self)
+{
+    struct script_ctx *ctx = get_ctx(mrb);
+    char *event;
+    mrb_bool enable;
+    mrb_get_args(mrb, "zb", &event, &enable);
+
+    int event_id = -1;
+    for (int n = 0; n < 256; n++) {
+        const char *name = mpv_event_name(n);
+        if (name && strcmp(name, event) == 0) {
+            event_id = n;
+            break;
+        }
+    }
+
+    int err = mpv_request_event(ctx->client, event_id, enable);
     return api_return_bool(mrb, err);
 }
 
@@ -341,8 +354,9 @@ static void define_module(mrb_state *mrb)
     MRB_FN(get_property, 1);
     MRB_FN(set_property, 2);
     MRB_FN(wait_event, 1);
-    MRB_FN(observe_property, 1);
-    MRB_FN(unobserve_property, 1);
+    MRB_FN(observe_property_raw, 2);
+    MRB_FN(unobserve_property_raw, 1);
+    MRB_FN(request_event, 2);
     MRB_FN(get_time, 0);
 }
 #undef MRB_FN
@@ -423,7 +437,6 @@ static int load_mruby(struct mpv_handle *client, const char *fname)
         .log      = mp_client_get_log(client),
         .client   = client,
         .mpctx    = mpctx,
-        .rd       = 1337
     };
 
     mrb_state *mrb = ctx->state = mrb_open();

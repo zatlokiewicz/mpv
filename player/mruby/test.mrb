@@ -40,8 +40,15 @@ def run
   puts "\n done! All tests pass!\n\n"
 end
 
+def at_start(&block)
+  M.events.observe('tick') do
+    M.events.unobserve('tick')
+    block.call
+  end
+end
+
 assert ".property_list returns an array" do
-  assert_equal(M.get_property('property-list').val.class, Array)
+  assert_class(M.get_property('property-list').val, Array)
 end
 
 assert ".property_list contains options" do
@@ -62,6 +69,4 @@ assert ".set_property works on complex types" do
   assert_equal(M.get_property("vf"), [{"name"=>"crop", "params"=> {"w" => "400", "h" => "400"}}])
 end
 
-puts M.get_property('property-list')
-M.get_property("mute")
-run
+at_start { run }
