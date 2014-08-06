@@ -102,19 +102,6 @@ static mrb_value _log(mrb_state *mrb, mrb_value self)
     return mrb_nil_value();
 }
 
-static mrb_value _property_list(mrb_state *mrb, mrb_value self)
-{
-    const struct m_property *props = mp_get_property_list();
-    mrb_value mrb_props = mrb_ary_new(mrb);
-    int ai = mrb_gc_arena_save(mrb);
-    for (int i = 0; props[i].name; i++) {
-        mrb_value name = mrb_str_new_cstr(mrb, props[i].name);
-        mrb_ary_push(mrb, mrb_props, name);
-    }
-    mrb_gc_arena_restore(mrb, ai);
-    return api_return_val(mrb, 1, mrb_props);
-}
-
 static mrb_value mpv_to_mrb_root(mrb_state *mrb, mpv_node node, bool root)
 {
     switch (node.format) {
@@ -351,7 +338,6 @@ static void define_module(mrb_state *mrb)
 {
     struct RClass *mod = mrb_define_module(mrb, "M");
     MRB_FN(log, 1);
-    MRB_FN(property_list, 0);
     MRB_FN(get_property, 1);
     MRB_FN(set_property, 2);
     MRB_FN(wait_event, 1);
