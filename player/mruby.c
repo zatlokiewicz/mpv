@@ -349,6 +349,28 @@ static mrb_value _request_event(mrb_state *mrb, mrb_value self)
     return api_return_bool(mrb, err);
 }
 
+static mrb_value _command(mrb_state *mrb, mrb_value self)
+{
+    struct script_ctx *ctx = get_ctx(mrb);
+    char *command;
+    mrb_get_args(mrb, "z", &command);
+    return api_return_bool(mrb, mpv_command_string(ctx->client, command));
+}
+
+static mrb_value _commandv(mrb_state *mrb, mrb_value self)
+{
+    struct script_ctx *ctx = get_ctx(mrb);
+    mrb_value *commands;
+    mrb_int size;
+    mrb_get_args(mrb, "*", &commands, &size);
+    char **args = talloc_zero_array(NULL, char *, size + 1);
+    for (int i = 0; i < size; i++)
+        args[i] = talloc_strdup(args, RSTRING_PTR(commands[i]));
+    int err = mpv_command(ctx->client, (const char **)args);
+    talloc_free(args);
+    return api_return_bool(mrb, err);
+}
+
 static mrb_value _get_time(mrb_state *mrb, mrb_value self)
 {
     struct script_ctx *ctx = get_ctx(mrb);
@@ -356,20 +378,21 @@ static mrb_value _get_time(mrb_state *mrb, mrb_value self)
     return mrb_float_value(mrb, secs);
 }
 
-#define MRB_FN(a,b) \
-    mrb_define_module_function(mrb, mod, #a, _ ## a, MRB_ARGS_REQ(b));
+#define MRB_FN(a,b) mrb_define_module_function(mrb, mod, #a, _ ## a, (b))
 static void define_module(mrb_state *mrb)
 {
     struct RClass *mod = mrb_define_module(mrb, "M");
-    MRB_FN(log, 1);
-    MRB_FN(find_config_file, 1);
-    MRB_FN(get_property, 1);
-    MRB_FN(set_property, 2);
-    MRB_FN(wait_event, 1);
-    MRB_FN(observe_property_raw, 2);
-    MRB_FN(unobserve_property_raw, 1);
-    MRB_FN(request_event, 2);
-    MRB_FN(get_time, 0);
+    MRB_FN(log,                     MRB_ARGS_REQ(1));
+    MRB_FN(find_config_file,        MRB_ARGS_REQ(1));
+    MRB_FN(get_property,            MRB_ARGS_REQ(1));
+    MRB_FN(set_property,            MRB_ARGS_REQ(2));
+    MRB_FN(wait_event,              MRB_ARGS_REQ(1));
+    MRB_FN(observe_property_raw,    MRB_ARGS_REQ(2));
+    MRB_FN(unobserve_property_raw,  MRB_ARGS_REQ(1));
+    MRB_FN(request_event,           MRB_ARGS_REQ(2));
+    MRB_FN(command,                 MRB_ARGS_REQ(1));
+    MRB_FN(commandv,                MRB_ARGS_ANY());
+    MRB_FN(get_time,                MRB_ARGS_NONE());
 }
 #undef MRB_FN
 

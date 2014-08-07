@@ -23,3 +23,5 @@ M.timers.add do |t|
   t.cancel and next if t.executions > 2
   M.puts.error "timer called!"
 end.every(2)
+
+M.commandv "seek", "30"
