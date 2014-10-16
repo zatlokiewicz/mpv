@@ -13,10 +13,86 @@
 #include <QApplication>
 #include <QTextEdit>
 #include <QJsonDocument>
+#include <QPushButton>
+#include <QPainter>
+#include <QLabel>
 
 #include <mpv/qthelper.hpp>
 
 #include "qtexample.h"
+
+VideoFrame::VideoFrame(QWidget *parent, mpv_handle *a_mpv) :
+    QWidget(parent), mpv(a_mpv), osd_frame(NULL), osd_memory(NULL)
+{
+    osd_frame = new QFrame(this);
+    osd_frame->move(0, 0);
+    osd_frame->show();
+
+    QBoxLayout *layout = new QBoxLayout(QBoxLayout::LeftToRight, this);
+    layout->insertWidget(0, osd_frame);
+
+    setAttribute(Qt::WA_DontCreateNativeAncestors);
+    setAttribute(Qt::WA_NativeWindow);
+    winId();
+
+    int64_t wid = videoWinId();
+    mpv_set_option(mpv, "wid", MPV_FORMAT_INT64, &wid);
+}
+
+void VideoFrame::paintEvent(QPaintEvent *event)
+{
+    (void)event;
+    // Here we redraw the _sub_ window. The paint event is merely abused to
+    // know when we should update the overlay because the sub window may
+    // have changed appearance for whatever reasons.
+    redrawOsd();
+}
+
+void VideoFrame::redrawOsd()
+{
+    // Do double buffering, because mpv will use the referenced image memory
+    // until the overlay is removed or replaced.
+    QImage *img = new QImage(osd_frame->size(), QImage::Format_ARGB32_Premultiplied);
+    img->fill(Qt::transparent);
+    {
+      QPainter painter(img);
+      osd_frame->render(&painter, QPoint(), QRegion(), QWidget::DrawChildren);
+    }
+    QVariantList cmd;
+    cmd.append("overlay_add");
+    // overlay ID - a low positive number, freely chosen by the application
+    // It's possible to add multiple overlays by using other IDs.
+    cmd.append(0);
+    cmd.append(0); // x (top corner of display within the mpv window)
+    cmd.append(0); // y
+    // File, file descriptor, or address of OSD memory (address in this case)
+    cmd.append("&" + QString::number((uintptr_t)(void *)img->bits()));
+    // Offset within the OSD file (unused here, useful for file mappings)
+    cmd.append(0);
+    // Pixel format; corresponds to QImage::Format_ARGB32_Premultiplied
+    cmd.append("bgra");
+    // Width/height/stride
+    cmd.append(img->width());
+    cmd.append(img->height());
+    cmd.append(img->bytesPerLine());
+
+    mpv::qt::command_variant(mpv, cmd);
+
+    delete osd_memory;
+    osd_memory = img;
+}
+
+VideoFrame::~VideoFrame()
+{
+    // First, absolutely make sure mpv is not using the image data anymore.
+    QVariantList cmd;
+    cmd.append("overlay_remove");
+    cmd.append(0); // overlay ID
+    mpv::qt::command_variant(mpv, cmd);
+
+    delete osd_frame;
+    delete osd_memory;
+}
 
 static void wakeup(void *ctx)
 {
@@ -29,7 +105,7 @@ static void wakeup(void *ctx)
 }
 
 MainWindow::MainWindow(QWidget *parent) :
-    QMainWindow(parent)
+    QMainWindow(parent), mpv_container(0), mpv(0), log(0), video_frame(0)
 {
     setWindowTitle("Qt embedding demo");
     setMinimumSize(640, 480);
@@ -55,15 +131,37 @@ MainWindow::MainWindow(QWidget *parent) :
     if (!mpv)
         throw "can't create mpv instance";
 
+    video_frame = new VideoFrame(this, mpv);
+
+    setCentralWidget(video_frame);
+    video_frame->setMinimumSize(640, 480);
+    video_frame->show();
+
+    QPushButton *butt = new QPushButton(video_frame->osdFrame());
+    butt->setText("hi");
+    butt->setToolTip("this is a tooltip");
+    butt->move(100, 200);
+    butt->show();
+    connect(butt, SIGNAL(clicked()), this, SLOT(on_click()));
+
+    QLabel *d = new QLabel(video_frame->osdFrame());
+    d->move(50, 50);
+    d->setMinimumSize(100, 100);
+    d->setStyleSheet("background-color: rgba(0,120,0,50);");
+    d->setText("hi!");
+    d->show();
+
+    /*
+    ---- normal code, commented for the sake of VideoFrame
     // Create a video child window. Force Qt to create a native window, and
     // pass the window ID to the mpv wid option. This doesn't work on OSX,
     // because Cocoa doesn't support this form of embedding.
-    mpv_container = new QWidget(this);
-    setCentralWidget(mpv_container);
+    mpv_container->setAttribute(Qt::WA_DontCreateNativeAncestors);
     mpv_container->setAttribute(Qt::WA_NativeWindow);
     // If you have a HWND, use: int64_t wid = (intptr_t)hwnd;
-    int64_t wid = mpv_container->winId();
-    mpv_set_option(mpv, "wid", MPV_FORMAT_INT64, &wid);
+    //int64_t wid = mpv_container->winId();
+    //mpv_set_option(mpv, "wid", MPV_FORMAT_INT64, &wid);
+    */
 
     // Enable default bindings, because we're lazy. Normally, a player using
     // mpv as backend would implement its own key bindings.
@@ -71,7 +169,9 @@ MainWindow::MainWindow(QWidget *parent) :
 
     // Enable keyboard input on the X11 window. For the messy details, see
     // --input-vo-keyboard on the manpage.
-    mpv_set_option_string(mpv, "input-vo-keyboard", "yes");
+    mpv_set_option_string(mpv, "input-vo-keyboard", "no");
+    mpv_set_option_string(mpv, "input-cursor", "no");
+    mpv_set_option_string(mpv, "cursor-autohide", "no");
 
     // Let us receive property change events with MPV_EVENT_PROPERTY_CHANGE if
     // this property changes.
@@ -148,6 +248,8 @@ void MainWindow::handle_mpv_event(mpv_event *event)
         break;
     }
     case MPV_EVENT_SHUTDOWN: {
+        delete video_frame;
+        video_frame = NULL;
         mpv_terminate_destroy(mpv);
         mpv = NULL;
         break;
@@ -183,6 +285,11 @@ void MainWindow::on_file_open()
     }
 }
 
+void MainWindow::on_click()
+{
+    printf("whoo!\n");
+}
+
 void MainWindow::append_log(const QString &text)
 {
     QTextCursor cursor = log->textCursor();
@@ -193,6 +300,7 @@ void MainWindow::append_log(const QString &text)
 
 MainWindow::~MainWindow()
 {
+    delete video_frame;
     if (mpv)
         mpv_terminate_destroy(mpv);
 }
